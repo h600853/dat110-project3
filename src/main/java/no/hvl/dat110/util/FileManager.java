@@ -57,15 +57,22 @@ public class FileManager {
         this.chordnode = chordnode;
     }
 
+    /**
+
+     Creates replica files for distribution to matching nodes
+     */
     public void createReplicaFiles() {
 
         // set a loop where size = numReplicas
-        // replicate by adding the index to filename
-        // hash the replica
-        // store the hash in the replicafiles array.
         for (int i = 0; i < numReplicas; i++) {
-            String replicaname = filename + i;
-            replicafiles[i] = Hash.hashOf(replicaname);
+            // replicate by adding the index to filename
+            String replicaName = filename + i;
+
+            // hash the replica
+            BigInteger hash = Hash.hashOf(replicaName);
+
+            // store the hash in the replicafiles array.
+            replicafiles[i] = hash;
         }
     }
 
@@ -80,30 +87,26 @@ public class FileManager {
 
         // Task1: Given a filename, make replicas and distribute them to all active peers such that: pred < replica <= peer
         // Task2: assign a replica as the primary for this file. Hint, see the slide (project 3) on Canvas
-        // create replicas of the filename
-        // iterate over the replicas
-        // for each replica, find its successor (peer/node) by performing findSuccessor(replica)
-        // call the addKey on the successor and add the replica
-        // implement a logic to decide if this successor should be assigned as the primary for the file
-        // call the saveFileContent() on the successor and set isPrimary=true if logic above is true otherwise set isPrimary=false
-        // increment counter
+
+        // create replicas of the file
         createReplicaFiles();
-        NodeInterface predecessor = chordnode.getPredecessor();
-        for (BigInteger replica : replicafiles) {
+
+        // distribute replicas to all active peers
+        for (int i = 0; i < numReplicas; i++) {
+            BigInteger replica = replicafiles[i];
+
             NodeInterface successor = chordnode.findSuccessor(replica);
-            boolean valid = Util.checkInterval(predecessor.getNodeID(), replica, successor.getNodeID());
-            if (valid) {
-                successor.addKey(replica);
-            }
-            if (counter == index) {
-                successor.saveFileContent(filename, chordnode.getNodeID(), bytesOfFile, true);
-            } else {
-                successor.saveFileContent(filename, chordnode.getNodeID(), bytesOfFile, false);
-            }
+            successor.addKey(replica);
+
+            // save the file content in the peer that is responsible for the replica
+            // set primary flag to true for the replica that is selected as the primary
+            successor.saveFileContent(filename, replica, bytesOfFile, counter == index);
+
             counter++;
         }
 
         return counter;
+
     }
 
     /**
@@ -124,17 +127,23 @@ public class FileManager {
         // save the metadata in the set activeNodesforFile.
 
         createReplicaFiles();
-        for (BigInteger replica : replicafiles) {
-            NodeInterface successor = chordnode.findSuccessor(replica);
-            Map<BigInteger, Message> filesMetadata = successor.getFilesMetadata();
-            for (Message metadata : filesMetadata.values()) {
-                activeNodesforFile.add(metadata);
-            }
+        for (int i = 0; i < numReplicas; i++) {
+            BigInteger replica = replicafiles[i];
 
+            // Find the node that is responsible for the replica
+            NodeInterface successor = chordnode.findSuccessor(replica);
+
+            // Get the metadata (Message) of the replica from the successor (i.e., active peer) of the file
+            Message metadata = successor.getFilesMetadata(replica);
+
+            // Save the metadata in the set activeNodesforFile
+            activeNodesforFile.add(metadata);
         }
 
+        // Return the set of active nodes for the file
         return activeNodesforFile;
     }
+
 
     /**
      * Find the primary server - Remote-Write Protocol
