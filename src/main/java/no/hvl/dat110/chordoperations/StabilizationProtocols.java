@@ -84,7 +84,7 @@ public class StabilizationProtocols extends TimerTask {
 			logger.info("Stabilizing ring from "+chordnode.getNodeName()+"...");
 			
 			NodeInterface succ = chordnode.getSuccessor();						// get the successor of node
-					
+
 			NodeInterface succnode = null;
 			NodeInterface predsucc = null;
 			
@@ -187,7 +187,7 @@ public class StabilizationProtocols extends TimerTask {
 			//
 		}
 	}
-	
+
 	public void setStop(boolean stop) {
 		this.stop = stop;
 	}
