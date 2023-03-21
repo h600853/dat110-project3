@@ -4,7 +4,10 @@
 package no.hvl.dat110.chordoperations;
 
 import java.math.BigInteger;
+import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
+import java.rmi.registry.LocateRegistry;
+import java.rmi.registry.Registry;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -15,14 +18,16 @@ import org.apache.logging.log4j.Logger;
 import no.hvl.dat110.middleware.Message;
 import no.hvl.dat110.middleware.Node;
 import no.hvl.dat110.rpc.interfaces.NodeInterface;
+import no.hvl.dat110.util.Hash;
 import no.hvl.dat110.util.Util;
 
 /**
  * @author tdoy
  */
 public class ChordLookup {
+
     private static final Logger logger = LogManager.getLogger(ChordLookup.class);
-    private final Node node;
+    private Node node;
 
     public ChordLookup(Node node) {
         this.node = node;
@@ -35,19 +40,17 @@ public class ChordLookup {
         // if logic returns true, then return the successor
         // if logic returns false; call findHighestPredecessor(key)
         // do highest_pred.findSuccessor(key) - This is a recursive call until logic returns true
+        NodeInterface successor = node.getSuccessor();
 
-        // get the current node's successor
-        NodeInterface succ = node.getSuccessor();
-        // get the process stub for the successor
-        NodeInterface stub = Util.getProcessStub(succ.getNodeName(), succ.getPort());
-        // check if the stub is not null and if key is between the current node's ID + 1 and the successor's ID
-        if (stub != null && Util.checkInterval(key, node.getNodeID().add(new BigInteger("1")), stub.getNodeID())) {
-            // if key is between the current node's ID + 1 and the successor's ID, return the successor's stub
-            return stub;
+        boolean result = Util.checkInterval(key, node.getNodeID().add(BigInteger.ONE), successor.getNodeID());
+        if (result) {
+            return successor;
+        } else {
+            NodeInterface highestPredecessor = findHighestPredecessor(key);
+            return highestPredecessor.findSuccessor(key);
+
         }
-        // if key is not between the current node and its immediate successor, recursively call findSuccessor on the closest
-        // predecessor of key until the successor is found
-        return findHighestPredecessor(key).findSuccessor(key);
+
     }
 
     /**
@@ -58,6 +61,7 @@ public class ChordLookup {
      * @throws RemoteException
      */
     private NodeInterface findHighestPredecessor(BigInteger ID) throws RemoteException {
+
         // collect the entries in the finger table for this node
         // starting from the last entry, iterate over the finger table
         // for each finger, obtain a stub from the registry
@@ -65,25 +69,32 @@ public class ChordLookup {
         // if logic returns true, then return the finger (means finger is the closest to key)
 
         List<NodeInterface> fingerTable = node.getFingerTable();
+                Registry registry = LocateRegistry.getRegistry();
+            NodeInterface fingerStub;
 
         for (int i = fingerTable.size() - 1; i >= 0; i--) {
             NodeInterface finger = fingerTable.get(i);
-            NodeInterface stub = Util.getProcessStub(finger.getNodeName(), finger.getPort());
 
-            assert stub != null;
-            if (Util.checkInterval(finger.getNodeID(), node.getNodeID().add(new BigInteger("1")), ID.subtract(new BigInteger("1")))) {
-                return stub;
+            try {
+                fingerStub = (NodeInterface) registry.lookup(finger.getNodeName());
+            boolean result = Util.checkInterval(finger.getNodeID(), node.getNodeID().add(BigInteger.ONE), ID.subtract(BigInteger.ONE));
+            if(result) {
+                return fingerStub;
+            }
+            } catch (RemoteException | NotBoundException e) {
+                throw new RuntimeException(e);
             }
         }
-
-        return node;
+        return (NodeInterface) node;
     }
 
     public void copyKeysFromSuccessor(NodeInterface succ) {
+
         Set<BigInteger> filekeys;
         try {
             // if this node and succ are the same, don't do anything
-            if (succ.getNodeName().equals(node.getNodeName())) return;
+            if (succ.getNodeName().equals(node.getNodeName()))
+                return;
 
             logger.info("copy file keys that are <= " + node.getNodeName() + " from successor " + succ.getNodeName() + " to " + node.getNodeName());
 
@@ -91,6 +102,7 @@ public class ChordLookup {
             BigInteger nodeID = node.getNodeID();
 
             for (BigInteger fileID : filekeys) {
+
                 if (fileID.compareTo(nodeID) <= 0) {
                     logger.info("fileID=" + fileID + " | nodeID= " + nodeID);
                     node.addKey(fileID);                                                            // re-assign file to this successor node
@@ -108,14 +120,16 @@ public class ChordLookup {
     }
 
     public void notify(NodeInterface pred_new) throws RemoteException {
+
         NodeInterface pred_old = node.getPredecessor();
 
         // if the predecessor is null accept the new predecessor
         if (pred_old == null) {
-            // accept the new predecessor
-            node.setPredecessor(pred_new);
+            node.setPredecessor(pred_new);        // accept the new predecessor
+            return;
         } else if (pred_new.getNodeName().equals(node.getNodeName())) {
             node.setPredecessor(null);
+            return;
         } else {
             BigInteger nodeID = node.getNodeID();
             BigInteger pred_oldID = pred_old.getNodeID();
@@ -130,4 +144,5 @@ public class ChordLookup {
             }
         }
     }
+
 }
